@@ -2,7 +2,7 @@ use std::borrow::Cow;
 use std::fmt;
 use std::iter;
 use std::slice;
-use std::u32;
+use std::u64;
 
 use self::SuffixType::{Ascending, Descending, Valley};
 
@@ -38,7 +38,7 @@ use self::SuffixType::{Ascending, Descending, Valley};
 /// computed. In essence, this "inductively sorts" suffixes of the original
 /// text with several linear scans over the text. Because of the number of
 /// linear scans, the performance of construction is heavily tied to cache
-/// performance (and this is why `u32` is used to represent the suffix index
+/// performance (and this is why `u64` is used to represent the suffix index
 /// instead of a `u64`).
 ///
 /// The space usage is roughly `6` bytes per character. (The optimal bound is
@@ -53,7 +53,7 @@ use self::SuffixType::{Ascending, Descending, Valley};
 #[derive(Clone, Eq, PartialEq)]
 pub struct SuffixTable<'s, 't> {
     text: Cow<'s, str>,
-    table: Cow<'t, [u32]>,
+    table: Cow<'t, [u64]>,
 }
 
 impl<'s, 't> SuffixTable<'s, 't> {
@@ -69,9 +69,9 @@ impl<'s, 't> SuffixTable<'s, 't> {
     /// Panics if the `text` contains more than `2^32 - 1` bytes. This
     /// restriction is mostly artificial; there's no fundamental reason why
     /// suffix array construction algorithm can't use a `u64`. Nevertheless,
-    /// `u32` was chosen for performance reasons. The performance of the
+    /// `u64` was chosen for performance reasons. The performance of the
     /// construction algorithm is highly dependent on cache performance, which
-    /// is degraded with a bigger number type. `u32` strikes a nice balance; it
+    /// is degraded with a bigger number type. `u64` strikes a nice balance; it
     /// gets good performance while allowing most reasonably sized documents
     /// (~4GB).
     pub fn new<S>(text: S) -> SuffixTable<'s, 't>
@@ -110,7 +110,7 @@ impl<'s, 't> SuffixTable<'s, 't> {
     pub fn from_parts<S, T>(text: S, table: T) -> SuffixTable<'s, 't>
     where
         S: Into<Cow<'s, str>>,
-        T: Into<Cow<'t, [u32]>>,
+        T: Into<Cow<'t, [u64]>>,
     {
         let (text, table) = (text.into(), table.into());
         assert_eq!(text.len(), table.len());
@@ -121,15 +121,15 @@ impl<'s, 't> SuffixTable<'s, 't> {
     ///
     /// This is useful to avoid copying when the suffix table is part of an
     /// intermediate computation.
-    pub fn into_parts(self) -> (Cow<'s, str>, Cow<'t, [u32]>) {
+    pub fn into_parts(self) -> (Cow<'s, str>, Cow<'t, [u64]>) {
         (self.text, self.table)
     }
 
     /// Computes the LCP array.
-    pub fn lcp_lens(&self) -> Vec<u32> {
-        let mut inverse = vec![0u32; self.text.len()];
+    pub fn lcp_lens(&self) -> Vec<u64> {
+        let mut inverse = vec![0u64; self.text.len()];
         for (rank, &sufstart) in self.table().iter().enumerate() {
-            inverse[sufstart as usize] = rank as u32;
+            inverse[sufstart as usize] = rank as u64;
         }
         lcp_lens_quadratic(self.text(), self.table())
         // Broken on Unicode text for now. ---AG
@@ -138,7 +138,7 @@ impl<'s, 't> SuffixTable<'s, 't> {
 
     /// Return the suffix table.
     #[inline]
-    pub fn table(&self) -> &[u32] {
+    pub fn table(&self) -> &[u64] {
         &self.table
     }
 
@@ -219,7 +219,7 @@ impl<'s, 't> SuffixTable<'s, 't> {
     /// let sa = SuffixTable::new("The quick brown fox was very quick.");
     /// assert_eq!(sa.positions("quick"), &[4, 29]);
     /// ```
-    pub fn positions(&self, query: &str) -> &[u32] {
+    pub fn positions(&self, query: &str) -> &[u64] {
         let (text, query) = (self.text.as_bytes(), query.as_bytes());
 
         // We can quickly decide whether the query won't match at all if
@@ -275,7 +275,7 @@ impl<'s, 't> SuffixTable<'s, 't> {
     /// let position = sa.any_position("quick");
     /// assert!(position == Some(4) || position == Some(29));
     /// ```
-    pub fn any_position(&self, query: &str) -> Option<u32> {
+    pub fn any_position(&self, query: &str) -> Option<u64> {
         let (text, query) = (self.text.as_bytes(), query.as_bytes());
         if query.len() == 0 {
             return None;
@@ -311,7 +311,7 @@ impl<'s, 't> fmt::Debug for SuffixTable<'s, 't> {
 }
 
 // #[allow(dead_code)]
-// fn lcp_lens_linear(text: &str, table: &[u32], inv: &[u32]) -> Vec<u32> {
+// fn lcp_lens_linear(text: &str, table: &[u64], inv: &[u64]) -> Vec<u64> {
 // // This algorithm is bunk because it doesn't work on Unicode. See comment
 // // in the code below.
 //
@@ -322,15 +322,15 @@ impl<'s, 't> fmt::Debug for SuffixTable<'s, 't> {
 // // It does require the use of the inverse suffix array, which makes this
 // // O(n) in space. The inverse suffix array gives us a special ordering
 // // with which to compute the LCPs.
-// let mut lcps = vec![0u32; table.len()];
-// let mut len = 0u32;
+// let mut lcps = vec![0u64; table.len()];
+// let mut len = 0u64;
 // for (sufi2, &rank) in inv.iter().enumerate() {
 // if rank == 0 {
 // continue
 // }
 // let sufi1 = table[(rank - 1) as usize];
 // len += lcp_len(&text[(sufi1 + len) as usize..],
-// &text[(sufi2 as u32 + len) as usize..]);
+// &text[(sufi2 as u64 + len) as usize..]);
 // lcps[rank as usize] = len;
 // if len > 0 {
 // // This is an illegal move because `len` is derived from `text`,
@@ -344,13 +344,13 @@ impl<'s, 't> fmt::Debug for SuffixTable<'s, 't> {
 // lcps
 // }
 
-fn lcp_lens_quadratic(text: &str, table: &[u32]) -> Vec<u32> {
+fn lcp_lens_quadratic(text: &str, table: &[u64]) -> Vec<u64> {
     // This is quadratic because there are N comparisons for each LCP.
     // But it is done in constant space.
 
     // The first LCP is always 0 because of the definition:
     //   LCP_LENS[i] = lcp_len(suf[i-1], suf[i])
-    let mut lcps = vec![0u32; table.len()];
+    let mut lcps = vec![0u64; table.len()];
     let text = text.as_bytes();
     for (i, win) in table.windows(2).enumerate() {
         lcps[i + 1] =
@@ -359,32 +359,32 @@ fn lcp_lens_quadratic(text: &str, table: &[u32]) -> Vec<u32> {
     lcps
 }
 
-fn lcp_len(a: &[u8], b: &[u8]) -> u32 {
-    a.iter().zip(b.iter()).take_while(|(ca, cb)| ca == cb).count() as u32
+fn lcp_len(a: &[u8], b: &[u8]) -> u64 {
+    a.iter().zip(b.iter()).take_while(|(ca, cb)| ca == cb).count() as u64
 }
 
-fn naive_table(text: &str) -> Vec<u32> {
+fn naive_table(text: &str) -> Vec<u64> {
     let text = text.as_bytes();
-    assert!(text.len() <= u32::MAX as usize);
-    let mut table = vec![0u32; text.len()];
+    assert!(text.len() <= u64::MAX as usize);
+    let mut table = vec![0u64; text.len()];
     for i in 0..table.len() {
-        table[i] = i as u32;
+        table[i] = i as u64;
     }
     table.sort_by(|&a, &b| text[a as usize..].cmp(&text[b as usize..]));
     table
 }
 
-fn sais_table<'s>(text: &'s str) -> Vec<u32> {
+fn sais_table<'s>(text: &'s str) -> Vec<u64> {
     let text = text.as_bytes();
-    assert!(text.len() <= u32::MAX as usize);
-    let mut sa = vec![0u32; text.len()];
-    let mut stypes = SuffixTypes::new(text.len() as u32);
+    assert!(text.len() <= u64::MAX as usize);
+    let mut sa = vec![0u64; text.len()];
+    let mut stypes = SuffixTypes::new(text.len() as u64);
     let mut bins = Bins::new();
     sais(&mut *sa, &mut stypes, &mut bins, &Utf8(text));
     sa
 }
 
-fn sais<T>(sa: &mut [u32], stypes: &mut SuffixTypes, bins: &mut Bins, text: &T)
+fn sais<T>(sa: &mut [u64], stypes: &mut SuffixTypes, bins: &mut Bins, text: &T)
 where
     T: Text,
     <<T as Text>::IdxChars as Iterator>::Item: IdxChar,
@@ -409,8 +409,8 @@ where
 
     // Insert the valley suffixes.
     for (i, c) in text.char_indices().map(|v| v.idx_char()) {
-        if stypes.is_valley(i as u32) {
-            bins.tail_insert(sa, i as u32, c);
+        if stypes.is_valley(i as u64) {
+            bins.tail_insert(sa, i as u64, c);
         }
     }
 
@@ -447,7 +447,7 @@ where
     }
 
     // Find and move all wstrings to the beginning of `sa`.
-    let mut num_wstrs = 0u32;
+    let mut num_wstrs = 0u64;
     for i in 0..sa.len() {
         let sufi = sa[i];
         if stypes.is_valley(sufi) {
@@ -461,12 +461,12 @@ where
         num_wstrs = 1;
     }
 
-    let mut prev_sufi = 0u32; // the first suffix can never be a valley
-    let mut name = 0u32;
-    // We set our "name buffer" to be max u32 values. Since there are at
+    let mut prev_sufi = 0u64; // the first suffix can never be a valley
+    let mut name = 0u64;
+    // We set our "name buffer" to be max u64 values. Since there are at
     // most n/2 wstrings, a name can never be greater than n/2.
-    for i in num_wstrs..(sa.len() as u32) {
-        sa[i as usize] = u32::MAX;
+    for i in num_wstrs..(sa.len() as u64) {
+        sa[i as usize] = u64::MAX;
     }
     for i in 0..num_wstrs {
         let cur_sufi = sa[i as usize];
@@ -482,9 +482,9 @@ where
 
     // We've inserted the lexical names into the latter half of the suffix
     // array, but it's sparse. so let's smush them all up to the end.
-    let mut j = sa.len() as u32 - 1;
-    for i in (num_wstrs..(sa.len() as u32)).rev() {
-        if sa[i as usize] != u32::MAX {
+    let mut j = sa.len() as u64 - 1;
+    for i in (num_wstrs..(sa.len() as u64)).rev() {
+        if sa[i as usize] != u64::MAX {
             sa[j as usize] = sa[i as usize];
             j -= 1;
         }
@@ -499,7 +499,7 @@ where
         stypes.compute(text);
     } else {
         for i in 0..num_wstrs {
-            let reducedi = sa[((sa.len() as u32) - num_wstrs + i) as usize];
+            let reducedi = sa[((sa.len() as u64) - num_wstrs + i) as usize];
             sa[reducedi as usize] = i;
         }
     }
@@ -512,8 +512,8 @@ where
     // original text.
     let mut j = sa.len() - (num_wstrs as usize);
     for (i, _) in text.char_indices().map(|v| v.idx_char()) {
-        if stypes.is_valley(i as u32) {
-            sa[j] = i as u32;
+        if stypes.is_valley(i as u64) {
+            sa[j] = i as u64;
             j += 1;
         }
     }
@@ -525,10 +525,10 @@ where
     // In other words, this sets the suffix indices of only the wstrings.
     for i in 0..num_wstrs {
         let sufi = sa[i as usize];
-        sa[i as usize] = sa[(sa.len() as u32 - num_wstrs + sufi) as usize];
+        sa[i as usize] = sa[(sa.len() as u64 - num_wstrs + sufi) as usize];
     }
     // Now zero out everything after the wstrs.
-    for i in num_wstrs..(sa.len() as u32) {
+    for i in num_wstrs..(sa.len() as u64) {
         sa[i as usize] = 0;
     }
 
@@ -584,7 +584,7 @@ enum SuffixType {
 }
 
 impl SuffixTypes {
-    fn new(num_bytes: u32) -> SuffixTypes {
+    fn new(num_bytes: u64) -> SuffixTypes {
         SuffixTypes { types: vec![SuffixType::Ascending; num_bytes as usize] }
     }
 
@@ -616,23 +616,23 @@ impl SuffixTypes {
     }
 
     #[inline]
-    fn ty(&self, i: u32) -> SuffixType {
+    fn ty(&self, i: u64) -> SuffixType {
         self.types[i as usize]
     }
     #[inline]
-    fn is_asc(&self, i: u32) -> bool {
+    fn is_asc(&self, i: u64) -> bool {
         self.ty(i).is_asc()
     }
     #[inline]
-    fn is_desc(&self, i: u32) -> bool {
+    fn is_desc(&self, i: u64) -> bool {
         self.ty(i).is_desc()
     }
     #[inline]
-    fn is_valley(&self, i: u32) -> bool {
+    fn is_valley(&self, i: u64) -> bool {
         self.ty(i).is_valley()
     }
     #[inline]
-    fn equal(&self, i: u32, j: u32) -> bool {
+    fn equal(&self, i: u64, j: u64) -> bool {
         self.ty(i) == self.ty(j)
     }
 }
@@ -681,9 +681,9 @@ impl PartialEq for SuffixType {
 }
 
 struct Bins {
-    alphas: Vec<u32>,
-    sizes: Vec<u32>,
-    ptrs: Vec<u32>,
+    alphas: Vec<u64>,
+    sizes: Vec<u64>,
+    ptrs: Vec<u64>,
 }
 
 impl Bins {
@@ -697,7 +697,7 @@ impl Bins {
 
     fn find_sizes<I>(&mut self, chars: I)
     where
-        I: Iterator<Item = u32>,
+        I: Iterator<Item = u64>,
     {
         self.alphas.clear();
         for size in self.sizes.iter_mut() {
@@ -712,11 +712,11 @@ impl Bins {
         self.alphas.sort();
 
         let ptrs_len = self.alphas[self.alphas.len() - 1] + 1;
-        self.ptrs = vec![0u32; ptrs_len as usize];
+        self.ptrs = vec![0u64; ptrs_len as usize];
     }
 
     fn find_head_pointers(&mut self) {
-        let mut sum = 0u32;
+        let mut sum = 0u64;
         for &c in self.alphas.iter() {
             self.ptrs[c as usize] = sum;
             sum += self.size(c);
@@ -724,7 +724,7 @@ impl Bins {
     }
 
     fn find_tail_pointers(&mut self) {
-        let mut sum = 0u32;
+        let mut sum = 0u64;
         for &c in self.alphas.iter() {
             sum += self.size(c);
             self.ptrs[c as usize] = sum - 1;
@@ -732,14 +732,14 @@ impl Bins {
     }
 
     #[inline]
-    fn head_insert(&mut self, sa: &mut [u32], i: u32, c: u32) {
+    fn head_insert(&mut self, sa: &mut [u64], i: u64, c: u64) {
         let ptr = &mut self.ptrs[c as usize];
         sa[*ptr as usize] = i;
         *ptr += 1;
     }
 
     #[inline]
-    fn tail_insert(&mut self, sa: &mut [u32], i: u32, c: u32) {
+    fn tail_insert(&mut self, sa: &mut [u64], i: u64, c: u64) {
         let ptr = &mut self.ptrs[c as usize];
         sa[*ptr as usize] = i;
         if *ptr > 0 {
@@ -748,7 +748,7 @@ impl Bins {
     }
 
     #[inline]
-    fn inc_size(&mut self, c: u32) {
+    fn inc_size(&mut self, c: u64) {
         if c as usize >= self.sizes.len() {
             self.sizes.resize(1 + (c as usize), 0);
         }
@@ -756,7 +756,7 @@ impl Bins {
     }
 
     #[inline]
-    fn size(&self, c: u32) -> u32 {
+    fn size(&self, c: u64) -> u64 {
         self.sizes[c as usize]
     }
 }
@@ -764,7 +764,7 @@ impl Bins {
 /// Encapsulates iteration and indexing over text.
 ///
 /// This enables us to expose a common interface between a `String` and
-/// a `Vec<u32>`. Specifically, a `Vec<u32>` is used for lexical renaming.
+/// a `Vec<u64>`. Specifically, a `Vec<u64>` is used for lexical renaming.
 trait Text {
     /// An iterator over characters.
     ///
@@ -772,19 +772,19 @@ trait Text {
     type IdxChars: Iterator + DoubleEndedIterator;
 
     /// The length of the text.
-    fn len(&self) -> u32;
+    fn len(&self) -> u64;
 
     /// The character previous to the byte index `i`.
-    fn prev(&self, i: u32) -> (u32, u32);
+    fn prev(&self, i: u64) -> (u64, u64);
 
     /// The character at byte index `i`.
-    fn char_at(&self, i: u32) -> u32;
+    fn char_at(&self, i: u64) -> u64;
 
     /// An iterator over characters tagged with their byte offsets.
     fn char_indices(&self) -> Self::IdxChars;
 
     /// Compare two strings at byte indices `w1` and `w2`.
-    fn wstring_equal(&self, stypes: &SuffixTypes, w1: u32, w2: u32) -> bool;
+    fn wstring_equal(&self, stypes: &SuffixTypes, w1: u64, w2: u64) -> bool;
 }
 
 struct Utf8<'s>(&'s [u8]);
@@ -793,29 +793,29 @@ impl<'s> Text for Utf8<'s> {
     type IdxChars = iter::Enumerate<slice::Iter<'s, u8>>;
 
     #[inline]
-    fn len(&self) -> u32 {
-        self.0.len() as u32
+    fn len(&self) -> u64 {
+        self.0.len() as u64
     }
 
     #[inline]
-    fn prev(&self, i: u32) -> (u32, u32) {
-        (i - 1, self.0[i as usize - 1] as u32)
+    fn prev(&self, i: u64) -> (u64, u64) {
+        (i - 1, self.0[i as usize - 1] as u64)
     }
 
     #[inline]
-    fn char_at(&self, i: u32) -> u32 {
-        self.0[i as usize] as u32
+    fn char_at(&self, i: u64) -> u64 {
+        self.0[i as usize] as u64
     }
 
     fn char_indices(&self) -> iter::Enumerate<slice::Iter<'s, u8>> {
         self.0.iter().enumerate()
     }
 
-    fn wstring_equal(&self, stypes: &SuffixTypes, w1: u32, w2: u32) -> bool {
+    fn wstring_equal(&self, stypes: &SuffixTypes, w1: u64, w2: u64) -> bool {
         let w1chars = self.0[w1 as usize..].iter().enumerate();
         let w2chars = self.0[w2 as usize..].iter().enumerate();
         for ((i1, c1), (i2, c2)) in w1chars.zip(w2chars) {
-            let (i1, i2) = (w1 + i1 as u32, w2 + i2 as u32);
+            let (i1, i2) = (w1 + i1 as u64, w2 + i2 as u64);
             if c1 != c2 || !stypes.equal(i1, i2) {
                 return false;
             }
@@ -832,35 +832,35 @@ impl<'s> Text for Utf8<'s> {
     }
 }
 
-struct LexNames<'s>(&'s [u32]);
+struct LexNames<'s>(&'s [u64]);
 
 impl<'s> Text for LexNames<'s> {
-    type IdxChars = iter::Enumerate<slice::Iter<'s, u32>>;
+    type IdxChars = iter::Enumerate<slice::Iter<'s, u64>>;
 
     #[inline]
-    fn len(&self) -> u32 {
-        self.0.len() as u32
+    fn len(&self) -> u64 {
+        self.0.len() as u64
     }
 
     #[inline]
-    fn prev(&self, i: u32) -> (u32, u32) {
+    fn prev(&self, i: u64) -> (u64, u64) {
         (i - 1, self.0[i as usize - 1])
     }
 
     #[inline]
-    fn char_at(&self, i: u32) -> u32 {
+    fn char_at(&self, i: u64) -> u64 {
         self.0[i as usize]
     }
 
-    fn char_indices(&self) -> iter::Enumerate<slice::Iter<'s, u32>> {
+    fn char_indices(&self) -> iter::Enumerate<slice::Iter<'s, u64>> {
         self.0.iter().enumerate()
     }
 
-    fn wstring_equal(&self, stypes: &SuffixTypes, w1: u32, w2: u32) -> bool {
+    fn wstring_equal(&self, stypes: &SuffixTypes, w1: u64, w2: u64) -> bool {
         let w1chars = self.0[w1 as usize..].iter().enumerate();
         let w2chars = self.0[w2 as usize..].iter().enumerate();
         for ((i1, c1), (i2, c2)) in w1chars.zip(w2chars) {
-            let (i1, i2) = (w1 + i1 as u32, w2 + i2 as u32);
+            let (i1, i2) = (w1 + i1 as u64, w2 + i2 as u64);
             if c1 != c2 || !stypes.equal(i1, i2) {
                 return false;
             }
@@ -879,28 +879,28 @@ impl<'s> Text for LexNames<'s> {
 
 /// A trait for converting indexed characters into a uniform representation.
 trait IdxChar {
-    /// Convert `Self` to a `(usize, u32)`.
-    fn idx_char(self) -> (usize, u32);
+    /// Convert `Self` to a `(usize, u64)`.
+    fn idx_char(self) -> (usize, u64);
 }
 
 impl<'a> IdxChar for (usize, &'a u8) {
     #[inline]
-    fn idx_char(self) -> (usize, u32) {
-        (self.0, *self.1 as u32)
+    fn idx_char(self) -> (usize, u64) {
+        (self.0, *self.1 as u64)
     }
 }
 
-impl<'a> IdxChar for (usize, &'a u32) {
+impl<'a> IdxChar for (usize, &'a u64) {
     #[inline]
-    fn idx_char(self) -> (usize, u32) {
+    fn idx_char(self) -> (usize, u64) {
         (self.0, *self.1)
     }
 }
 
 impl IdxChar for (usize, char) {
     #[inline]
-    fn idx_char(self) -> (usize, u32) {
-        (self.0, self.1 as u32)
+    fn idx_char(self) -> (usize, u64) {
+        (self.0, self.1 as u64)
     }
 }
 
